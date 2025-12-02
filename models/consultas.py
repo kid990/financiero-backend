@@ -9,10 +9,11 @@ def conectar_bd():
     """Establece la conexión a la base de datos MySQL."""
     try:
         connection = mysql.connector.connect(
-            host='localhost',
-            database='riesgo_financiero',
-            user='root',
-            password=''
+            host='switchyard.proxy.rlwy.net',
+database='railway',
+user='root',
+password='njZTTseYcjQJUZgpAGDZFHrwkcShkzsg',
+port=46378
         )
         if connection.is_connected():
             return connection
