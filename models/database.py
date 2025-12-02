@@ -7,10 +7,12 @@ def get_connection():
     """
     try:
         connection = mysql.connector.connect(
-            host='localhost',
-            database='riesgo_financiero',
-            user='root',
-            password=''  # coloca aquí tu contraseña real si aplica
+           host='switchyard.proxy.rlwy.net',
+database='railway',
+user='root',
+password='njZTTseYcjQJUZgpAGDZFHrwkcShkzsg',
+port=46378
+
         )
         return connection
 
