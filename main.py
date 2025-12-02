@@ -26,7 +26,10 @@ app = FastAPI(title="Sistema de Evaluación de Riesgo Financiero", version="1.0"
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",                   # frontend local (Vite)
+        "https://sistema-financiero-weld.vercel.app",  # tu frontend en Vercel
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -354,4 +357,5 @@ def register(request: RegisterRequest):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # Solo para correr en local, Render NO usa esto
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
