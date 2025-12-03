@@ -1,11 +1,11 @@
-
 import tensorflow as tf
-import numpy as np
 import pickle
 import os
 import pandas as pd
-from models.consultas import obtener_cliente_por_dni
+from decimal import Decimal
 from funciones import calcular_tasa_interes_anual, calcular_cuota_mensual
+from models.consultaResultado import crear_resultado
+from models.consultaSolicitudes import actualizar_estado_solicitud
 
 
 class MotorCredito:
@@ -17,12 +17,12 @@ class MotorCredito:
 
             modelo_path = os.path.join(dir_raiz, 'modelo_credito.keras')
             if not os.path.exists(modelo_path):
-                raise FileNotFoundError(f"No se encontró el modelo en: {modelo_path}")
+                raise FileNotFoundError(f"No se encontro el modelo en: {modelo_path}")
             self.modelo = tf.keras.models.load_model(modelo_path)
 
             escalador_path = os.path.join(dir_raiz, 'escalador.pkl')
             if not os.path.exists(escalador_path):
-                raise FileNotFoundError(f"No se encontró el escalador en: {escalador_path}")
+                raise FileNotFoundError(f"No se encontro el escalador en: {escalador_path}")
             with open(escalador_path, 'rb') as f:
                 self.scaler = pickle.load(f)
 
@@ -37,19 +37,16 @@ class MotorCredito:
             for archivo, atributo in codificadores:
                 archivo_path = os.path.join(dir_raiz, archivo)
                 if not os.path.exists(archivo_path):
-                    raise FileNotFoundError(f"No se encontró el codificador: {archivo_path}")
+                    raise FileNotFoundError(f"No se encontro el codificador: {archivo_path}")
                 with open(archivo_path, 'rb') as f:
                     setattr(self, atributo, pickle.load(f))
 
-            caracteristicas_path = os.path.join(dir_raiz,'caracteristicas.pkl')
+            caracteristicas_path = os.path.join(dir_raiz, 'caracteristicas.pkl')
             if not os.path.exists(caracteristicas_path):
-                raise FileNotFoundError(f"No se encontraron las características en: {caracteristicas_path}")
+                raise FileNotFoundError(f"No se encontraron las caracteristicas en: {caracteristicas_path}")
 
             with open(caracteristicas_path, 'rb') as f:
                 self.caracteristicas = pickle.load(f)
-
-            print("Motor de crédito inicializado correctamente")
-            print(f"Características cargadas: {len(self.caracteristicas)}")
 
         except Exception as e:
             print(f"Error al inicializar el motor: {e}")
@@ -61,24 +58,16 @@ class MotorCredito:
             if valor_str in encoder.classes_:
                 return encoder.transform([valor_str])[0]
             else:
-                print(f"Valor '{valor}' no encontrado en encoder. Usando default: {default}")
                 return default
-        except Exception as e:
-            print(f"Error codificando '{valor}': {e}. Usando default: {default}")
+        except Exception:
             return default
 
-    def evaluar_prestamo(self, datos_cliente):
+    def evaluar_y_guardar(self, solicitud_id, datos_cliente):
         try:
-            from decimal import Decimal
-
             datos_cliente = {
                 k: float(v) if isinstance(v, Decimal) else v
                 for k, v in datos_cliente.items()
             }
-
-            print("\n" + "=" * 70)
-            print("EVALUACIÓN PASO 2: ANÁLISIS CON INTELIGENCIA ARTIFICIAL")
-            print("=" * 70)
 
             tipo_prestamo_cod = self._codificar_valor(self.le_tipo_prestamo, datos_cliente['tipo_prestamo'])
             estado_credito_cod = self._codificar_valor(self.le_estado_credito, datos_cliente['estado_credito'])
@@ -104,89 +93,52 @@ class MotorCredito:
 
             for feature in self.caracteristicas:
                 if feature not in datos_modelo:
-                    raise ValueError(f"Característica faltante: {feature}")
+                    raise ValueError(f"Caracteristica faltante: {feature}")
 
             df = pd.DataFrame([datos_modelo])[self.caracteristicas]
-            print(f"Datos preparados para IA: {len(self.caracteristicas)} características")
-
             df_norm = self.scaler.transform(df)
             probabilidad = float(self.modelo.predict(df_norm, verbose=0)[0][0])
-            califica_ia = probabilidad > 0.5
+            califica = probabilidad > 0.5
 
-            print(f"Probabilidad de Aprobación (IA): {probabilidad * 100:.2f}%")
-            print(f"Umbral de Decisión: 50.00%")
-            print(f"Decisión IA: {'APROBAR' if califica_ia else 'RECHAZAR'}")
-
-            if califica_ia:
-                tasa_anual_pct = calcular_tasa_interes_anual(datos_cliente)
-                tasa_mensual_pct = round(tasa_anual_pct / 12.0, 2)
+            if califica:
+                tasa_anual = calcular_tasa_interes_anual(datos_cliente)
+                tasa_mensual = round(tasa_anual / 12.0, 2)
                 plazo_meses = datos_cliente.get('meses', 12)
                 cuota_mensual = calcular_cuota_mensual(
                     datos_cliente['monto_prestamo'],
                     plazo_meses,
-                    tasa_anual_pct
+                    tasa_anual
                 )
                 total_a_pagar = round(cuota_mensual * plazo_meses, 2)
-
-                print("\n" + "=" * 70)
-                print("CONDICIONES DEL PRÉSTAMO APROBADO")
-                print("=" * 70)
-                print(f"Monto Aprobado: S/ {datos_cliente['monto_prestamo']:,.2f}")
-                print(f"Plazo: {plazo_meses} meses")
-                print(f"Tasa de Interés Anual: {tasa_anual_pct}%")
-                print(f"Tasa de Interés Mensual: {tasa_mensual_pct}%")
-                print(f"Cuota Mensual: S/ {cuota_mensual:,.2f}")
-                print(f"Total a Pagar: S/ {total_a_pagar:,.2f}")
-                print("=" * 70)
-
-                if probabilidad > 0.80:
-                    razon = "Excelente perfil crediticio"
-                elif probabilidad > 0.60:
-                    razon = "Buen perfil crediticio"
-                else:
-                    razon = "Perfil crediticio aceptable"
+                monto_aprobado = datos_cliente['monto_prestamo']
             else:
-                tasa_anual_pct = 0
-                tasa_mensual_pct = 0
+                tasa_anual = 0
+                tasa_mensual = 0
+                plazo_meses = 0
                 cuota_mensual = 0
                 total_a_pagar = 0
+                monto_aprobado = 0
 
-                if probabilidad < 0.30:
-                    razon = "Perfil de alto riesgo"
-                else:
-                    razon = "Perfil no óptimo para el monto solicitado"
-
-            print("\n" + "=" * 70)
-            print(f"{'DECISIÓN FINAL: APROBADO' if califica_ia else 'DECISIÓN FINAL: RECHAZADO'}")
-            print("=" * 70)
-
-            return {
-                'califica': int(califica_ia),
-                'probabilidad': f"{probabilidad * 100:.2f}%",
+            resultado = {
+                'solicitud_id': solicitud_id,
+                'califica': int(califica),
                 'probabilidad_raw': probabilidad,
-                'monto_aprobado': datos_cliente['monto_prestamo'] if califica_ia else 0,
-                'plazo_meses': datos_cliente.get('meses', 12) if califica_ia else 0,
-                'tasa_interes_anual': tasa_anual_pct,
-                'tasa_interes_mensual': tasa_mensual_pct,
+                'monto_aprobado': monto_aprobado,
+                'plazo_meses': plazo_meses,
+                'tasa_interes_anual': tasa_anual,
+                'tasa_interes_mensual': tasa_mensual,
                 'cuota_mensual': cuota_mensual,
-                'total_a_pagar': total_a_pagar,
-                'razon': f"{razon} - Modelo IA: {probabilidad * 100:.1f}% de confianza",
-                'regla_aplicada': 'Inteligencia Artificial (Post-Validación Básica)',
-                'cumple_reglas_basicas': True,
-                'caracteristicas_utilizadas': len(self.caracteristicas),
+                'total_a_pagar': total_a_pagar
             }
+
+            resultado_id = crear_resultado(resultado)
+            if not resultado_id:
+                return {'error': 'Error al guardar resultado'}
+
+            estado = "aceptada" if califica else "rechazada"
+            actualizar_estado_solicitud(solicitud_id, estado)
+
+            return {'resultado_id': resultado_id}
 
         except Exception as e:
-            print(f"Error durante la evaluación: {e}")
-            import traceback
-            traceback.print_exc()
-            return {
-                'error': str(e),
-                'califica': 0,
-                'probabilidad': "0.00%",
-                'monto_aprobado': 0,
-                'tasa_interes_anual': 0,
-                'tasa_interes_mensual': 0,
-                'cuota_mensual': 0,
-                'total_a_pagar': 0
-            }
+            return {'error': str(e)}
