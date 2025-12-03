@@ -2,7 +2,7 @@ import mysql.connector
 from mysql.connector import Error
 
 DB_CONFIG = {
-    Produccion (Railway)
+    #Produccion (Railway)
     'host': 'switchyard.proxy.rlwy.net',
     'database': 'railway',
     'user': 'root',
