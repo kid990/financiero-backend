@@ -1,5 +1,6 @@
 import random
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, validator
 from fastapi.middleware.cors import CORSMiddleware
 import bcrypt
@@ -10,7 +11,7 @@ from datetime import datetime, timedelta
 from models.motor import MotorCredito
 from models.consultasHistorial import obtener_cliente_por_dni
 from models.consultasUsuario import login_usuario, registrar_usuario
-from models.consultaSolicitudes import crear_solicitud, obtener_solicitud_por_id, obtener_solicitudes_por_dni, editar_solicitud, obtener_estadisticas_solicitudes, listar_todas_solicitudes
+from models.consultaSolicitudes import crear_solicitud, obtener_solicitud_por_id, obtener_solicitudes_por_dni, editar_solicitud, obtener_estadisticas_solicitudes, listar_todas_solicitudes, verificar_solicitud_pendiente
 from models.consultaResultado import obtener_resultado_por_solicitud, obtener_resultados_por_dni
 
 API_BASE_URL = "https://dniruc.apisperu.com/api/v1"
@@ -152,10 +153,33 @@ def generate_jwt_token(usuario):
     expiration = datetime.utcnow() + timedelta(hours=1)
     payload = {
         "sub": usuario["email"],
+        "rol": usuario["rol"],
         "exp": expiration
     }
     token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
     return token
+
+
+# ==================== MIDDLEWARE DE AUTENTICACION ====================
+
+security = HTTPBearer()
+
+def verificar_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Verifica que el token JWT sea válido."""
+    try:
+        token = credentials.credentials
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        return payload
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expirado")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+def verificar_admin(payload: dict = Depends(verificar_token)):
+    """Verifica que el usuario sea administrador."""
+    if payload.get("rol") != "administrador":
+        raise HTTPException(status_code=403, detail="Acceso denegado. Se requiere rol de administrador")
+    return payload
 
 
 # ==================== ENDPOINTS VALIDACION ====================
@@ -191,11 +215,21 @@ def validar_categoria(request: ValidarCategoriaRequest):
 # ==================== ENDPOINTS CLIENTE ====================
 
 @app.post("/consultar-cliente")
-def consultar_cliente(request: ConsultaRequest):
+def consultar_cliente(request: ConsultaRequest, _: dict = Depends(verificar_admin)):
     dni = request.dni
 
     if not dni or len(str(dni)) != 8 or not str(dni).isdigit():
         return {"encontrado": False, "mensaje": "DNI incorrecto ingresa 8 digitos"}
+
+    # Verificar si tiene solicitud pendiente
+    solicitud_pendiente = verificar_solicitud_pendiente(dni)
+    if solicitud_pendiente:
+        return {
+            "encontrado": False, 
+            "tiene_pendiente": True,
+            "solicitud_id": solicitud_pendiente['id'],
+            "mensaje": "Este cliente ya tiene una solicitud pendiente de evaluación"
+        }
 
     cliente = obtener_cliente_por_dni(dni)
 
@@ -234,7 +268,7 @@ def consultar_cliente(request: ConsultaRequest):
 # ==================== ENDPOINTS SOLICITUD ====================
 
 @app.post("/crear-solicitud")
-def crear_solicitud_endpoint(request: SolicitudRequest):
+def crear_solicitud_endpoint(request: SolicitudRequest, _: dict = Depends(verificar_admin)):
     try:
         datos = request.dict()
         solicitud_id = crear_solicitud(datos)
@@ -248,35 +282,35 @@ def crear_solicitud_endpoint(request: SolicitudRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/solicitud/{solicitud_id}")
-def obtener_solicitud(solicitud_id: int):
+def obtener_solicitud(solicitud_id: int, _: dict = Depends(verificar_admin)):
     solicitud = obtener_solicitud_por_id(solicitud_id)
     if not solicitud:
         raise HTTPException(status_code=404, detail="Solicitud no encontrada")
     return solicitud
 
 @app.get("/solicitudes")
-def listar_solicitudes(page: int = 1, limit: int = 10, dni: str = None):
+def listar_solicitudes(page: int = 1, limit: int = 10, dni: str = None, _: dict = Depends(verificar_admin)):
     resultado = listar_todas_solicitudes(page, limit, dni)
     if not resultado:
         return {"solicitudes": [], "total": 0, "page": 1, "limit": limit, "pages": 0}
     return resultado
 
 @app.get("/solicitudes/{dni}")
-def obtener_solicitudes(dni: str, page: int = 1, limit: int = 10):
+def obtener_solicitudes(dni: str, page: int = 1, limit: int = 10, _: dict = Depends(verificar_admin)):
     resultado = obtener_solicitudes_por_dni(dni, page, limit)
     if not resultado:
         return {"solicitudes": [], "total": 0, "page": 1, "limit": limit, "pages": 0}
     return resultado
 
 @app.get("/estadisticas")
-def obtener_estadisticas():
+def obtener_estadisticas(_: dict = Depends(verificar_admin)):
     stats = obtener_estadisticas_solicitudes()
     if not stats:
         return {"total": 0, "pendientes": 0, "aprobadas": 0, "rechazadas": 0}
     return stats
 
 @app.put("/editar-solicitud/{solicitud_id}")
-def editar_solicitud_endpoint(solicitud_id: int, request: SolicitudRequest):
+def editar_solicitud_endpoint(solicitud_id: int, request: SolicitudRequest, _: dict = Depends(verificar_admin)):
     try:
         datos = request.dict()
         resultado = editar_solicitud(solicitud_id, datos)
@@ -295,7 +329,7 @@ def editar_solicitud_endpoint(solicitud_id: int, request: SolicitudRequest):
 # ==================== ENDPOINTS EVALUACION ====================
 
 @app.post("/evaluar-solicitud/{solicitud_id}")
-def evaluar_solicitud(solicitud_id: int):
+def evaluar_solicitud(solicitud_id: int, _: dict = Depends(verificar_admin)):
     try:
         solicitud = obtener_solicitud_por_id(solicitud_id)
         if not solicitud:
@@ -315,14 +349,14 @@ def evaluar_solicitud(solicitud_id: int):
         raise HTTPException(status_code=500, detail=f"Error en evaluacion: {str(e)}")
 
 @app.get("/resultado/{solicitud_id}")
-def obtener_resultado(solicitud_id: int):
+def obtener_resultado(solicitud_id: int, _: dict = Depends(verificar_admin)):
     resultado = obtener_resultado_por_solicitud(solicitud_id)
     if not resultado:
         raise HTTPException(status_code=404, detail="Resultado no encontrado")
     return resultado
 
 @app.get("/resultados/{dni}")
-def obtener_resultados(dni: str, page: int = 1, limit: int = 10):
+def obtener_resultados(dni: str, page: int = 1, limit: int = 10, _: dict = Depends(verificar_admin)):
     resultado = obtener_resultados_por_dni(dni, page, limit)
     if not resultado:
         return {"resultados": [], "total": 0, "page": 1, "limit": limit, "pages": 0}

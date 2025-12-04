@@ -193,6 +193,27 @@ def editar_solicitud(solicitud_id: int, datos: dict):
         connection.close()
 
 
+def verificar_solicitud_pendiente(dni: str):
+    """Verifica si un DNI tiene una solicitud pendiente."""
+    connection = conectar_bd()
+    if not connection:
+        return None
+
+    try:
+        cursor = connection.cursor(dictionary=True)
+        query = "SELECT id FROM solicitud WHERE dni = %s AND estado_solicitud = 'pendiente' LIMIT 1"
+        cursor.execute(query, (dni,))
+        return cursor.fetchone()
+
+    except Error as e:
+        print(f"Error al verificar solicitud pendiente: {e}")
+        return None
+
+    finally:
+        cursor.close()
+        connection.close()
+
+
 def listar_todas_solicitudes(page: int = 1, limit: int = 10, dni: str = None):
     """Lista todas las solicitudes con paginacion y filtro opcional por DNI."""
     connection = conectar_bd()
