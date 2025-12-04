@@ -11,10 +11,10 @@ DB_CONFIG = {
     
     # Local
     #'host': 'localhost',
-    #'database': 'riesgo_financiero',
-   # 'user': 'root',
-   # 'password': '',
-   # 'port': 3306
+   # 'database': 'riesgo_financiero',
+   #'user': 'root',
+   #'password': '',
+   #'port': 3306
 }
 
 def conectar_bd():

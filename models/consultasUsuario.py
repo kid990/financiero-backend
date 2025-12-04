@@ -1,5 +1,4 @@
 from mysql.connector import Error
-import bcrypt
 from models.database import conectar_bd
 
 

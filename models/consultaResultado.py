@@ -53,8 +53,8 @@ def obtener_resultado_por_solicitud(solicitud_id: int):
         connection.close()
 
 
-def obtener_resultados_por_dni(dni: str, page: int = 1, limit: int = 10):
-    """Obtiene todos los resultados de un DNI con paginacion."""
+def obtener_resultados_por_dni(dni: str):
+    """Obtiene todos los resultados de un DNI."""
     connection = conectar_bd()
     if not connection:
         return None
@@ -62,34 +62,15 @@ def obtener_resultados_por_dni(dni: str, page: int = 1, limit: int = 10):
     try:
         cursor = connection.cursor(dictionary=True)
         
-        # Contar total
-        count_query = """
-            SELECT COUNT(*) as total FROM resultados r
-            INNER JOIN solicitud s ON r.solicitud_id = s.id
-            WHERE s.dni = %s
-        """
-        cursor.execute(count_query, (dni,))
-        total = cursor.fetchone()['total']
-        
-        # Obtener paginado
-        offset = (page - 1) * limit
         query = """
             SELECT r.* FROM resultados r
             INNER JOIN solicitud s ON r.solicitud_id = s.id
             WHERE s.dni = %s
-            ORDER BY r.fecha_prediccion DESC
-            LIMIT %s OFFSET %s
         """
-        cursor.execute(query, (dni, limit, offset))
+        cursor.execute(query, (dni,))
         resultados = cursor.fetchall()
         
-        return {
-            'resultados': resultados,
-            'total': total,
-            'page': page,
-            'limit': limit,
-            'pages': (total + limit - 1) // limit
-        }
+        return {'resultados': resultados}
 
     except Error as e:
         print(f"Error al obtener resultados por DNI: {e}")

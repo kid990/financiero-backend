@@ -356,10 +356,10 @@ def obtener_resultado(solicitud_id: int, _: dict = Depends(verificar_admin)):
     return resultado
 
 @app.get("/resultados/{dni}")
-def obtener_resultados(dni: str, page: int = 1, limit: int = 10, _: dict = Depends(verificar_admin)):
-    resultado = obtener_resultados_por_dni(dni, page, limit)
+def obtener_resultados(dni: str, _: dict = Depends(verificar_admin)):
+    resultado = obtener_resultados_por_dni(dni)
     if not resultado:
-        return {"resultados": [], "total": 0, "page": 1, "limit": limit, "pages": 0}
+        return {"resultados": []}
     return resultado
 
 
@@ -376,25 +376,38 @@ def login(request: LoginRequest):
     usuario = login_usuario(email)
 
     if usuario:
-        if bcrypt.checkpw(contrasena.encode('utf-8'), usuario["contrasena"].encode('utf-8')):
-            token = generate_jwt_token(usuario)
-            return {
-                "message": "Login exitoso",
-                "token": token,
-                "usuario": {
-                    "nombre": usuario["nombre"],
-                    "apellido": usuario["apellido"],
-                    "email": usuario["email"],
-                    "rol": usuario["rol"]
+        try:
+            print(f"DEBUG - Hash BD: {usuario['contrasena']}")
+            print(f"DEBUG - Longitud hash: {len(usuario['contrasena'])}")
+            resultado = bcrypt.checkpw(contrasena.encode('utf-8'), usuario["contrasena"].encode('utf-8'))
+            print(f"DEBUG - Resultado checkpw: {resultado}")
+            if resultado:
+                if usuario["rol"] != "administrador":
+                    raise HTTPException(status_code=403, detail="Acceso denegado. Solo administradores pueden iniciar sesión")
+                token = generate_jwt_token(usuario)
+                return {
+                    "message": "Login exitoso",
+                    "token": token,
+                    "usuario": {
+                        "nombre": usuario["nombre"],
+                        "apellido": usuario["apellido"],
+                        "email": usuario["email"],
+                        "rol": usuario["rol"]
+                    }
                 }
-            }
-        else:
-            raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+            else:
+                raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"DEBUG - Error: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
     else:
         raise HTTPException(status_code=401, detail="Usuario no encontrado")
 
 @app.post("/register")
 def register(request: RegisterRequest):
+    print(f"DEBUG - Request: nombre={request.nombre}, apellido={request.apellido}, email={request.email}")
     nombre = request.nombre.strip()
     apellido = request.apellido.strip()
     email = request.email.strip()
@@ -403,14 +416,16 @@ def register(request: RegisterRequest):
     rol = request.rol.strip()
 
     if not nombre or not apellido or not email or not contrasena:
+        print(f"DEBUG - Campos vacios: nombre={bool(nombre)}, apellido={bool(apellido)}, email={bool(email)}, contrasena={bool(contrasena)}")
         raise HTTPException(status_code=400, detail="Campos requeridos vacios")
 
     usuario_existente = login_usuario(email)
+    print(f"DEBUG - Usuario existente: {usuario_existente}")
 
     if usuario_existente:
         raise HTTPException(status_code=400, detail="El email ya esta registrado")
 
-    hashed_password = bcrypt.hashpw(contrasena.encode('utf-8'), bcrypt.gensalt())
+    hashed_password = bcrypt.hashpw(contrasena.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     usuario_registrado = registrar_usuario(nombre, apellido, email, telefono, hashed_password, rol)
 
     if usuario_registrado:
